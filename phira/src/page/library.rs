@@ -142,6 +142,8 @@ pub struct LibraryPage {
     need_show_manage_fav_menu: bool,
     manage_fav_task: Option<Task<Result<(Collection, bool)>>>,
     manage_fav_pre_task: Option<Task<Result<ManageFavorite>>>,
+    #[allow(clippy::type_complexity)]
+    refresh_local_fav_task: Option<Task<Result<(Uuid, Vec<ChartRef>)>>>,
 
     multi_select_btn: DRectButton,
     multi_select_menu: Popup,
@@ -225,6 +227,7 @@ impl LibraryPage {
             need_show_manage_fav_menu: false,
             manage_fav_task: None,
             manage_fav_pre_task: None,
+            refresh_local_fav_task: None,
 
             multi_select_btn: DRectButton::new(),
             multi_select_menu: Popup::new()
@@ -673,6 +676,7 @@ impl Page for LibraryPage {
             || self.multi_create_fav_task.is_some()
             || self.manage_fav_pre_task.is_some()
             || self.manage_fav_task.is_some()
+            || self.refresh_local_fav_task.is_some()
         {
             return Ok(true);
         }
@@ -898,8 +902,53 @@ impl Page for LibraryPage {
         for chart in &mut s.charts_local {
             chart.illu.settle(t);
         }
+        self.tabs.selected_mut().view.can_refresh = !is_local || self.current_fav_index.is_some();
         if self.tabs.selected_mut().view.update(t)? {
-            self.load_online();
+            if is_local {
+                if let Some(index) = self.current_fav_index {
+                    let data = get_data();
+                    let uuid = data.collection_uuids()[index];
+                    let col = data.collection_by_index(index);
+                    if let Some(col_id) = col.id {
+                        if !data.config.offline_mode {
+                            self.sync_fav_task = Some(Task::new(async move {
+                                let resp: Collection = recv_raw(Client::get(format!("/collection/{col_id}"))).await?.json().await?;
+                                Ok(Some(resp))
+                            }));
+                        }
+                    } else {
+                        let charts = col.charts.clone();
+                        self.refresh_local_fav_task = Some(Task::new(async move {
+                            let mut ids_str = String::new();
+                            for chart in &charts {
+                                if let Some(id) = chart.id() {
+                                    ids_str.push_str(&id.to_string());
+                                    ids_str.push(',');
+                                }
+                            }
+                            let mut updated = charts;
+                            if !ids_str.is_empty() {
+                                ids_str.pop();
+                                let resp: Vec<Chart> = recv_raw(Client::get(format!("/chart/multi-get?ids={ids_str}"))).await?.json().await?;
+                                let mut id_to_chart = HashMap::new();
+                                for chart in resp {
+                                    id_to_chart.insert(chart.id, chart);
+                                }
+                                for chart in &mut updated {
+                                    if let Some(id) = chart.id() {
+                                        if let Some(info) = id_to_chart.get(&id) {
+                                            chart.info = Some(Box::new(ChartRefChartInfo::from_chart(info)));
+                                        }
+                                    }
+                                }
+                            }
+                            Ok((uuid, updated))
+                        }));
+                    }
+                }
+            } else {
+                self.load_online();
+            }
         }
         if self.tabs.selected_mut().view.need_update() {
             s.reload_local_charts();
@@ -1165,6 +1214,23 @@ impl Page for LibraryPage {
                 && self.current_fav_index.is_none_or(|it| get_data().collection_by_index(it).is_owned()),
         );
 
+        if let Some(task) = &mut self.refresh_local_fav_task {
+            if let Some(res) = task.take() {
+                match res {
+                    Err(err) => show_error(err),
+                    Ok((uuid, charts)) => {
+                        let data = get_data();
+                        let mut col = data.collection_info(&uuid).as_ref().clone();
+                        col.charts = charts;
+                        data.set_collection_info(&uuid, col)?;
+                        let _ = save_data();
+                        show_message(tl!("fav-synced")).ok();
+                        self.sync_local(s);
+                    }
+                }
+                self.refresh_local_fav_task = None;
+            }
+        }
         if let Some(task) = &mut self.sync_fav_task {
             if let Some(res) = task.take() {
                 match res {
@@ -1176,6 +1242,7 @@ impl Page for LibraryPage {
                         data.set_collection_info(&uuid, local.merge(&col))?;
                         let _ = save_data();
                         show_message(tl!("fav-synced")).ok();
+                        self.sync_local(s);
                     }
                     Ok(None) => {
                         use crate::page::favorites::{tl as ftl, L10N_LOCAL};
@@ -1541,7 +1608,11 @@ impl Page for LibraryPage {
             let total = self.export_total;
             ui.full_loading(tl!("multi-exporting", "current" => current, "total" => total), t);
         }
-        if self.multi_create_fav_task.is_some() || self.manage_fav_pre_task.is_some() || self.manage_fav_task.is_some() {
+        if self.multi_create_fav_task.is_some()
+            || self.manage_fav_pre_task.is_some()
+            || self.manage_fav_task.is_some()
+            || self.refresh_local_fav_task.is_some()
+        {
             ui.full_loading_simple(t);
         }
         Ok(())
