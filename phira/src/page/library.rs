@@ -552,7 +552,7 @@ pub fn request_export(suggested_name: String) {
             use objc2_foundation::NSTemporaryDirectory;
 
             let dir = NSTemporaryDirectory();
-            let output_path = PathBuf::from(dir.to_string()).join(&suggested_name);
+            let output_path = std::path::PathBuf::from(dir.to_string()).join(&suggested_name);
             let output_path_str = output_path.to_string_lossy().to_string();
             let config = File::create(&output_path).map(|file| {
                 let delete_path = output_path.clone();
