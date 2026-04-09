@@ -18,11 +18,9 @@ struct L10nCheckErrors {
 
 impl Display for L10nCheckErrors {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(f, "Localization Errors:")?;
         for (idx, message) in self.messages.iter().enumerate() {
-            if idx > 0 {
-                writeln!(f)?;
-            }
-            write!(f, "{message}")?;
+            writeln!(f, "\t{message}")?;
         }
         Ok(())
     }
