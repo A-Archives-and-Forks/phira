@@ -328,6 +328,22 @@ impl Judge {
         self.judgements.borrow_mut().clear();
     }
 
+    /// Advance note pointers past notes before time `t`, marking them as judged.
+    /// Used in exercise mode to skip notes before the exercise range start.
+    pub fn advance_to(&mut self, chart: &mut Chart, t: f64) {
+        for (line, (idx, st)) in chart.lines.iter_mut().zip(self.notes.iter_mut()) {
+            while *st < idx.len() {
+                let note = &mut line.notes[idx[*st] as usize];
+                if note.time as f64 >= t {
+                    break;
+                }
+                note.judge = JudgeStatus::Judged;
+                *st += 1;
+            }
+        }
+        self.last_time = t;
+    }
+
     pub fn commit(&mut self, t: f64, what: Judgement, line_id: u32, note_id: u32, diff: f64) {
         self.judgements.borrow_mut().push((t, line_id, note_id, Ok(what)));
         self.inner.commit(what, diff);

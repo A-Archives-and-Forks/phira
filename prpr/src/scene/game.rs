@@ -625,6 +625,9 @@ impl GameScene {
                     }
                     Some(0) => {
                         reset!(self, res, tm);
+                        if self.mode == GameMode::Exercise {
+                            self.judge.advance_to(&mut self.chart, self.exercise_range.start);
+                        }
                         #[cfg(target_env = "ohos")]
                         miniquad::native::set_interceptor_state(true);
                     }
@@ -1066,6 +1069,7 @@ impl Scene for GameScene {
             WHITE
         };
         if !self.dead
+            && matches!(self.state, State::Playing)
             && (self.res.config.mods.contains(Mods::INSTANT_DEATH_AP) && counts[1] + counts[2] + counts[3] > 0
                 || self.res.config.mods.contains(Mods::INSTANT_DEATH_FC) && counts[2] + counts[3] > 0)
         {
