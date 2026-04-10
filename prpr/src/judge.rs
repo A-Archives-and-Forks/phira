@@ -334,7 +334,7 @@ impl Judge {
         for (line, (idx, st)) in chart.lines.iter_mut().zip(self.notes.iter_mut()) {
             while *st < idx.len() {
                 let note = &mut line.notes[idx[*st] as usize];
-                if note.time as f64 >= t {
+                if note.time >= t {
                     break;
                 }
                 note.judge = JudgeStatus::Judged;
